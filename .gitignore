@@ -11,3 +11,6 @@ __pycache__/
 
 # Environment variables
 .env
+
+# Raw Dataset
+Matches.csv
