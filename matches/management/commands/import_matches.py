@@ -10,6 +10,13 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('csv_file', type=str, help='Path to the matches.csv file')
 
+    TEAM_NAME_NORMALISATION = {
+        "Nott'm Forest": "Nottm Forest",
+    }
+
+    def normalise_team_name(self, name):
+        return self.TEAM_NAME_NORMALISATION.get(name, name)
+
     def handle(self, *args, **options):
         file_path = options['csv_file']
         
@@ -38,11 +45,11 @@ class Command(BaseCommand):
 
             # 3. Get or Create Teams
             home_team_obj, _ = Team.objects.get_or_create(
-                name=row['HomeTeam'],
+                name=self.normalise_team_name(row['HomeTeam']),
                 league=league_obj
             )
             away_team_obj, _ = Team.objects.get_or_create(
-                name=row['AwayTeam'],
+                name=self.normalise_team_name(row['AwayTeam']),
                 league=league_obj
             )
 
