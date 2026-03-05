@@ -1,6 +1,6 @@
 from datetime import datetime
 from django.shortcuts import render
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q, Count, Sum, Case, When, IntegerField, Min, Max
@@ -9,6 +9,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import Team
 from .serializers import TeamSerializer
 from matches.models import Match
+from teams.services.team_dna import calculate_team_dna, parse_season
 
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all().order_by('name')
@@ -17,7 +18,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def stats(self, request, pk=None):
         team = self.get_object()
-        league_code = request.query_params.get('league', None)
+        league = request.query_params.get('league', None)
         date_from = request.query_params.get('date_from', None)
         date_to = request.query_params.get('date_to', None)
 
@@ -34,12 +35,12 @@ class TeamViewSet(viewsets.ModelViewSet):
             Q(away_team__name=team.name))
 
         # Apply league filter to see stats for specific league
-        if league_code:
-            matches = matches.filter(league__code=league_code)
+        if league:
+            matches = matches.filter(league__code=league)
 
             # League filter validation
             if not matches.exists():
-                return Response({'error': f'No matches found for {team.name} in league {league_code}.'}, status=400)
+                return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=400)
 
         # Apply date range filter
         if date_from:
@@ -91,9 +92,16 @@ class TeamViewSet(viewsets.ModelViewSet):
         else:
             win_percentage = 0.0
 
+        league_name = None
+        if league:
+            league_obj = Match.objects.filter(
+                league__code=league).values('league__name').first()
+            if league_obj:
+                league_name = league_obj['league__name']
+
         return Response({
             'team': team.name,
-            'league': matches.first().league.name if league_code else 'All Leagues',
+            'league': league_name if league else 'All Leagues',
             'date_from': date_from,
             'date_to': date_to,
             'matches_played': matches_played,
@@ -106,13 +114,14 @@ class TeamViewSet(viewsets.ModelViewSet):
             'win_percentage': win_percentage,
         })
 
+
     @action(detail=False, methods=['get'])
     def head_to_head(self, request):
         team1_id = request.query_params.get('team1_id', None)
         team2_id = request.query_params.get('team2_id', None)
         team1_name = request.query_params.get('team1', None)
         team2_name = request.query_params.get('team2', None)
-        league_code = request.query_params.get('league', None)
+        league = request.query_params.get('league', None)
         date_from = request.query_params.get('date_from', None)
         date_to = request.query_params.get('date_to', None)
 
@@ -152,12 +161,12 @@ class TeamViewSet(viewsets.ModelViewSet):
         )
 
         # Apply league filter to see head-to-head for specific league
-        if league_code:
-            matches = matches.filter(league__code=league_code)
+        if league:
+            matches = matches.filter(league__code=league)
 
             # League filter validation
             if not matches.exists():
-                return Response({'error': f'No matches found between {team1_name} and {team2_name} in league {league_code}.'}, status=400)
+                return Response({'error': f'No matches found between {team1_name} and {team2_name} in league {league}.'}, status=400)
 
         # Apply date range filter
         if date_from:
@@ -225,10 +234,17 @@ class TeamViewSet(viewsets.ModelViewSet):
             output_field=IntegerField(),
         )))['total_reds'] or 0
 
+        league_name = None
+        if league:
+            league_obj = Match.objects.filter(
+                league__code=league).values('league__name').first()
+            if league_obj:
+                league_name = league_obj['league__name']
+
         return Response({
             'team1': team1_name,
             'team2': team2_name,
-            'league': matches.first().league.name if league_code else 'All Leagues',
+            'league': league_name if league else 'All Leagues',
             'date_from': date_from,
             'date_to': date_to,
             'total_matches': total_matches,
@@ -244,6 +260,87 @@ class TeamViewSet(viewsets.ModelViewSet):
             'team2_red_cards': team2_reds,
         })
 
+    
+    @action(detail=True, methods=['get'])
+    def dna(self, request, pk=None):
+        team = self.get_object()
+        league = request.query_params.get('league', None)
+        season = request.query_params.get('season', None)
+        date_from = request.query_params.get('date_from', None)
+        date_to = request.query_params.get('date_to', None)
+        last_n = request.query_params.get('last_n', None)
+
+        # Season parsing and validation
+        if season:
+            try:
+                date_from, date_to = parse_season(season)
+            except ValueError:
+                return Response({'error': 'Invalid season format. Use "YYYY-YYYY", "YYYY/YYYY", "YY-YY", "YY/YY" or "YYYY".'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Date validation (only if season is not provided)
+        if date_from and not season:
+            try:
+                date_from = datetime.strptime(date_from, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({'error': 'Invalid date_from format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if date_to and not season:
+            try:
+                date_to = datetime.strptime(date_to, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({'error': 'Invalid date_to format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if date_from and date_to and date_from > date_to:
+            return Response({'error': 'date_from cannot be after date_to.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # last_n validation
+        if last_n:
+            try:
+                last_n = int(last_n)
+                if last_n <= 0:
+                    raise ValueError
+            except ValueError:
+                return Response({'error': 'last_n must be a positive integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # League filter validation
+        if league:
+            team_matches = Match.objects.filter(
+                league__code=league).filter(
+                Q(home_team=team) | Q(away_team=team)).exists()
+
+            if not team_matches:
+                return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Calculate Team DNA using the service function
+        dna_profile = calculate_team_dna(
+            team=team,
+            league=league,
+            date_from=date_from,
+            date_to=date_to,
+            last_n=last_n
+        )
+
+        if not dna_profile:
+            return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        league_name = None
+        if league:
+            league_obj = Match.objects.filter(
+                league__code=league).values('league__name').first()
+            if league_obj:
+                league_name = league_obj['league__name']
+
+        return Response({
+            "team": team.name,
+            "filters": {
+                "league": league_name if league else 'All Leagues',
+                "season": season,
+                "date_from": date_from,
+                "date_to": date_to,
+                "last_n": last_n,
+            },
+            "dna_profile": dna_profile
+        })
 
     # Filtering options
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
