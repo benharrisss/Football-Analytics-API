@@ -6,10 +6,10 @@ from rest_framework.response import Response
 from django.db.models import Q, Count, Sum, Case, When, IntegerField, Min, Max
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from .models import Team
+from .models import Team, Club
 from .serializers import TeamSerializer
 from matches.models import Match
-from teams.services.team_dna import calculate_team_dna, parse_season
+from teams.services.team_dna import calculate_team_dna, parse_season, get_filtered_matches
 
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all().order_by('name')
@@ -31,8 +31,8 @@ class TeamViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
 
         matches = Match.objects.filter(
-            Q(home_team__name=team.name) | 
-            Q(away_team__name=team.name))
+            Q(home_team__club=team.club) | 
+            Q(away_team__club=team.club))
 
         # Apply league filter to see stats for specific league
         if league:
@@ -62,26 +62,26 @@ class TeamViewSet(viewsets.ModelViewSet):
         matches_played = matches.count()
 
         wins = matches.filter(
-            Q(home_team__name=team.name, ft_result='H') | 
-            Q(away_team__name=team.name, ft_result='A')
+            Q(home_team__club=team.club, ft_result='H') | 
+            Q(away_team__club=team.club, ft_result='A')
         ).count()
 
         draws = matches.filter(ft_result='D').count()
 
         losses = matches.filter(
-            Q(home_team__name=team.name, ft_result='A') | 
-            Q(away_team__name=team.name, ft_result='H')
+            Q(home_team__club=team.club, ft_result='A') | 
+            Q(away_team__club=team.club, ft_result='H')
         ).count()
 
         goals_scored = matches.aggregate(total_goals=Sum(Case(
-            When(home_team__name=team.name, then='ft_home_goals'),
-            When(away_team__name=team.name, then='ft_away_goals'),
+            When(home_team__club=team.club, then='ft_home_goals'),
+            When(away_team__club=team.club, then='ft_away_goals'),
             output_field=IntegerField(),
         )))['total_goals'] or 0
 
         goals_conceded = matches.aggregate(total_goals=Sum(Case(
-            When(home_team__name=team.name, then='ft_away_goals'),
-            When(away_team__name=team.name, then='ft_home_goals'),
+            When(home_team__club=team.club, then='ft_away_goals'),
+            When(away_team__club=team.club, then='ft_home_goals'),
             output_field=IntegerField(),
         )))['total_goals'] or 0
 
@@ -128,20 +128,27 @@ class TeamViewSet(viewsets.ModelViewSet):
         # Team name validation
         try:
             if team1_id:
-                team1_name = Team.objects.get(id=team1_id).name
+                team1 = Team.objects.get(id=team1_id)
+            elif team1_name:
+                team1 = Team.objects.filter(name=team1_name).first()
+            else:
+                return Response({'error': 'Please provide either team1_id or team1 query parameter.'}, status=400)
+
             if team2_id:
-                team2_name = Team.objects.get(id=team2_id).name
+                team2 = Team.objects.get(id=team2_id)
+            elif team2_name:
+                team2 = Team.objects.filter(name=team2_name).first()
+            else:
+                return Response({'error': 'Please provide either team2_id or team2 query parameter.'}, status=400)
+            
         except Team.DoesNotExist:
             return Response({'error': 'One or both team IDs do not exist.'}, status=404)
 
-        if not team1_name or not team2_name:
-            return Response({'error': 'Please provide both team1 and team2 query parameters.'}, status=400)
-        
-        if not Team.objects.filter(name=team1_name).exists():
-            return Response({'error': f'Team "{team1_name}" does not exist.'}, status=404)
+        if not team1 or not team2:
+            return Response({'error': 'One or both team names could not be found.'}, status=404)
 
-        if not Team.objects.filter(name=team2_name).exists():
-            return Response({'error': f'Team "{team2_name}" does not exist.'}, status=404)
+        club1 = team1.club
+        club2 = team2.club
 
         # Date validation
         try:
@@ -156,8 +163,8 @@ class TeamViewSet(viewsets.ModelViewSet):
             return Response({'error': 'date_from cannot be after date_to.'}, status=400)
 
         matches = Match.objects.filter(
-            (Q(home_team__name=team1_name) & Q(away_team__name=team2_name)) |
-            (Q(home_team__name=team2_name) & Q(away_team__name=team1_name))
+            (Q(home_team__club=club1) & Q(away_team__club=club2)) |
+            (Q(home_team__club=club2) & Q(away_team__club=club1))
         )
 
         # Apply league filter to see head-to-head for specific league
@@ -166,7 +173,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 
             # League filter validation
             if not matches.exists():
-                return Response({'error': f'No matches found between {team1_name} and {team2_name} in league {league}.'}, status=400)
+                return Response({'error': f'No matches found between {team1.name} and {team2.name} in league {league}.'}, status=400)
 
         # Apply date range filter
         if date_from:
@@ -190,26 +197,26 @@ class TeamViewSet(viewsets.ModelViewSet):
         total_matches = matches.count()
 
         team1_wins = matches.filter(
-            Q(home_team__name=team1_name, ft_result='H') | 
-            Q(away_team__name=team1_name, ft_result='A')
+            Q(home_team__club=club1, ft_result='H') | 
+            Q(away_team__club=club1, ft_result='A')
         ).count()
 
         team2_wins = matches.filter(
-            Q(home_team__name=team2_name, ft_result='H') | 
-            Q(away_team__name=team2_name, ft_result='A')
+            Q(home_team__club=club2, ft_result='H') | 
+            Q(away_team__club=club2, ft_result='A')
         ).count()
 
         draws = matches.filter(ft_result='D').count()
 
         team1_goals = matches.aggregate(total_goals=Sum(Case(
-            When(home_team__name=team1_name, then='ft_home_goals'),
-            When(away_team__name=team1_name, then='ft_away_goals'),
+            When(home_team__club=club1, then='ft_home_goals'),
+            When(away_team__club=club1, then='ft_away_goals'),
             output_field=IntegerField(),
         )))['total_goals'] or 0
 
         team2_goals = matches.aggregate(total_goals=Sum(Case(
-            When(home_team__name=team2_name, then='ft_home_goals'),
-            When(away_team__name=team2_name, then='ft_away_goals'),
+            When(home_team__club=club2, then='ft_home_goals'),
+            When(away_team__club=club2, then='ft_away_goals'),
             output_field=IntegerField(),
         )))['total_goals'] or 0
 
@@ -223,14 +230,14 @@ class TeamViewSet(viewsets.ModelViewSet):
             team2_win_percentage = 0.0
             
         team1_reds = matches.aggregate(total_reds=Sum(Case(
-            When(home_team__name=team1_name, then='home_red_cards'),
-            When(away_team__name=team1_name, then='away_red_cards'),
+            When(home_team__club=club1, then='home_red_cards'),
+            When(away_team__club=club1, then='away_red_cards'),
             output_field=IntegerField(),
         )))['total_reds'] or 0
 
         team2_reds = matches.aggregate(total_reds=Sum(Case(
-            When(home_team__name=team2_name, then='home_red_cards'),
-            When(away_team__name=team2_name, then='away_red_cards'),
+            When(home_team__club=club2, then='home_red_cards'),
+            When(away_team__club=club2, then='away_red_cards'),
             output_field=IntegerField(),
         )))['total_reds'] or 0
 
@@ -302,14 +309,27 @@ class TeamViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return Response({'error': 'last_n must be a positive integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        matches = get_filtered_matches(team=team, league=league, date_from=date_from, date_to=date_to, last_n=last_n)
+
+        if not matches.exists():
+            return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        league_qs = matches.values_list('league__name', flat=True).distinct()
+
         # League filter validation
         if league:
             team_matches = Match.objects.filter(
                 league__code=league).filter(
-                Q(home_team=team) | Q(away_team=team)).exists()
+                Q(home_team__club=team.club) | Q(away_team__club=team.club)).exists()
 
             if not team_matches:
                 return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            display_league = matches.first().league.name
+        elif league_qs.count() == 1:
+            display_league = league_qs.first()
+        else:
+            display_league = 'All Leagues'    
 
         # Calculate Team DNA using the service function
         dna_profile = calculate_team_dna(
@@ -323,17 +343,10 @@ class TeamViewSet(viewsets.ModelViewSet):
         if not dna_profile:
             return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        league_name = None
-        if league:
-            league_obj = Match.objects.filter(
-                league__code=league).values('league__name').first()
-            if league_obj:
-                league_name = league_obj['league__name']
-
         return Response({
             "team": team.name,
             "filters": {
-                "league": league_name if league else 'All Leagues',
+                "league": display_league,
                 "season": season,
                 "date_from": date_from,
                 "date_to": date_to,

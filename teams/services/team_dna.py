@@ -2,7 +2,7 @@ from datetime import date
 import re
 from django.db.models import Q, Avg, Sum, F, Case, When, FloatField
 from matches.models import Match
-from teams.models import Team
+from teams.models import Team, Club
 
 
 def get_season_date_range(season_start_year):
@@ -43,11 +43,9 @@ def parse_season(season_str):
 
 
 def get_filtered_matches(team, league=None, date_from=None, date_to=None, last_n=None):
-    related_team_ids = Team.objects.filter(
-        name=team.name).values_list('id', flat=True)
-    
-    queryset = Match.objects.filter(Q(home_team__id__in=related_team_ids) | Q(away_team__id__in=related_team_ids))
-    
+    queryset = Match.objects.filter(
+        Q(home_team__club=team.club) | Q(away_team__club=team.club)
+    )
     if league:
         queryset = queryset.filter(league__code=league)
 
@@ -70,58 +68,58 @@ def calculate_raw_stats(team, matches):
         return None
     aggregated = matches.aggregate(
         avg_shots=Avg(Case(
-            When(home_team=team, then=F('home_shots')),
-            When(away_team=team, then=F('away_shots')),
+            When(home_team__club=team.club, then=F('home_shots')),
+            When(away_team__club=team.club, then=F('away_shots')),
             output_field=FloatField()
         )),
         avg_corners=Avg(Case(
-            When(home_team=team, then=F('home_corners')),
-            When(away_team=team, then=F('away_corners')),
+            When(home_team__club=team.club, then=F('home_corners')),
+            When(away_team__club=team.club, then=F('away_corners')),
             output_field=FloatField()
         )),
         avg_fouls=Avg(Case(
-            When(home_team=team, then=F('home_fouls')),
-            When(away_team=team, then=F('away_fouls')),
+            When(home_team__club=team.club, then=F('home_fouls')),
+            When(away_team__club=team.club, then=F('away_fouls')),
             output_field=FloatField()
         )),
         avg_yellows=Avg(Case(
-            When(home_team=team, then=F('home_yellow_cards')),
-            When(away_team=team, then=F('away_yellow_cards')),
+            When(home_team__club=team.club, then=F('home_yellow_cards')),
+            When(away_team__club=team.club, then=F('away_yellow_cards')),
             output_field=FloatField()
         )),
         avg_reds=Avg(Case(
-            When(home_team=team, then=F('home_red_cards')),
-            When(away_team=team, then=F('away_red_cards')),
+            When(home_team__club=team.club, then=F('home_red_cards')),
+            When(away_team__club=team.club, then=F('away_red_cards')),
             output_field=FloatField()
         )),
         goals_scored=Sum(Case(
-            When(home_team=team, then=F('ft_home_goals')),
-            When(away_team=team, then=F('ft_away_goals')),
+            When(home_team__club=team.club, then=F('ft_home_goals')),
+            When(away_team__club=team.club, then=F('ft_away_goals')),
             output_field=FloatField()
         )),
         goals_conceded=Sum(Case(
-            When(home_team=team, then=F('ft_away_goals')),
-            When(away_team=team, then=F('ft_home_goals')),
+            When(home_team__club=team.club, then=F('ft_away_goals')),
+            When(away_team__club=team.club, then=F('ft_home_goals')),
             output_field=FloatField()
         )),
         shots_conceded=Sum(Case(
-            When(home_team=team, then=F('away_shots')),
-            When(away_team=team, then=F('home_shots')),
+            When(home_team__club=team.club, then=F('away_shots')),
+            When(away_team__club=team.club, then=F('home_shots')),
             output_field=FloatField()
         )),
         shots_on_target=Sum(Case(
-            When(home_team=team, then=F('home_shots_on_target')),
-            When(away_team=team, then=F('away_shots_on_target')),
+            When(home_team__club=team.club, then=F('home_shots_on_target')),
+            When(away_team__club=team.club, then=F('away_shots_on_target')),
             output_field=FloatField()
         )),
         avg_shot_difference=Avg(Case(
-            When(home_team=team, then=F('home_shots') - F('away_shots')),
-            When(away_team=team, then=F('away_shots') - F('home_shots')),
+            When(home_team__club=team.club, then=F('home_shots') - F('away_shots')),
+            When(away_team__club=team.club, then=F('away_shots') - F('home_shots')),
             output_field=FloatField()
         )),
         avg_corner_difference=Avg(Case(
-            When(home_team=team, then=F('home_corners') - F('away_corners')),
-            When(away_team=team, then=F('away_corners') - F('home_corners')),
+            When(home_team__club=team.club, then=F('home_corners') - F('away_corners')),
+            When(away_team__club=team.club, then=F('away_corners') - F('home_corners')),
             output_field=FloatField()
         )),
     )
@@ -149,7 +147,7 @@ def calculate_raw_stats(team, matches):
     else:
         clinicality_raw = 0
 
-    discipline_raw = ((avg_fouls * 1) + (avg_yellows * 2) + (avg_reds * 5))
+    discipline_raw = ((avg_fouls * 0.5) + (avg_yellows * 2) + (avg_reds * 5))
 
     if matches_played > 0:
         defensive_stability_raw = ((goals_conceded * 0.8) + (shots_conceded * 0.2)) / matches_played
@@ -168,24 +166,29 @@ def calculate_raw_stats(team, matches):
 
 
 def get_league_baselines(teams_raw_stats):
-    baselines = {
-        stat: max(team[stat] for team in teams_raw_stats if team)
-        for stat in ['pressure', 'clinicality', 'discipline', 'defensive_stability', 'control']
-    }
+    if not teams_raw_stats:
+        return None
+    baselines = {}
+
+    for stat in ['pressure', 'clinicality', 'discipline', 'defensive_stability', 'control']:
+        stat_values = [team[stat] for team in teams_raw_stats]
+        baselines[stat] = {'min': min(stat_values), 'max': max(stat_values)}
 
     return baselines
 
 
-def normalise_stats(value, max_value, invert=False):
-    if max_value == 0:
-        return 0
+def normalise_stats(value, min_value, max_value, invert=False):
+    # Neutral baseline if all teams have the same value
+    if max_value == min_value:
+        return 50
+
+    scaled = (value - min_value) / (max_value - min_value)
 
     if invert:
-        score = (1 - (value / max_value)) * 100
-    else:
-        score = (value / max_value) * 100
+        scaled = 1 - scaled
+
+    score = round(scaled * 100, 2)
     
-    score = round(score, 2)
     return max(0, min(score, 100))
 
 
@@ -196,23 +199,41 @@ def calculate_team_dna(team, league=None, date_from=None, date_to=None, last_n=N
     if not raw_stats:
         return None
 
-    relevant_teams = Team.objects.all()
+    relevant_clubs = Club.objects.all()
 
     teams_raw = []
-    for t in relevant_teams:
-        t_matches = get_filtered_matches(t, league, date_from, date_to, last_n)
-        t_raw_stats = calculate_raw_stats(t, t_matches)
-        if t_raw_stats:
+    for club in relevant_clubs:
+        representative_team = club.teams.first()
+        if not representative_team:
+            continue
+
+        t_matches = get_filtered_matches(representative_team, league, date_from, date_to, last_n)
+        t_raw_stats = calculate_raw_stats(representative_team, t_matches)
+        
+        if t_raw_stats and t_matches.exists():
             teams_raw.append(t_raw_stats)
 
     baselines = get_league_baselines(teams_raw)
 
+    if not baselines:
+        baselines = {stat: {'min': 0, 'max': max(raw_stats[stat], 1)} for stat in raw_stats.keys()}
+
     dna_profile = {
-        'pressure': normalise_stats(raw_stats['pressure'], baselines['pressure']),
-        'clinicality': normalise_stats(raw_stats['clinicality'], baselines['clinicality']),
-        'discipline': normalise_stats(raw_stats['discipline'], baselines['discipline'], invert=True),
-        'defensive_stability': normalise_stats(raw_stats['defensive_stability'], baselines['defensive_stability'], invert=True),
-        'control': normalise_stats(raw_stats['control'], baselines['control']),
+        'pressure': normalise_stats(raw_stats['pressure'], 
+            baselines['pressure']['min'], baselines['pressure']['max']
+        ),
+        'clinicality': normalise_stats(raw_stats['clinicality'], 
+            baselines['clinicality']['min'], baselines['clinicality']['max']
+        ),
+        'discipline': normalise_stats(raw_stats['discipline'], 
+            baselines['discipline']['min'], baselines['discipline']['max'], invert=True
+        ),
+        'defensive_stability': normalise_stats(raw_stats['defensive_stability'], 
+            baselines['defensive_stability']['min'], baselines['defensive_stability']['max'], invert=True
+        ),
+        'control': normalise_stats(raw_stats['control'], 
+            baselines['control']['min'], baselines['control']['max']
+        ),
     }
 
     return dna_profile
