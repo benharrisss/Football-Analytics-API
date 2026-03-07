@@ -355,6 +355,112 @@ class TeamViewSet(viewsets.ModelViewSet):
             "dna_profile": dna_profile
         })
 
+    
+    @action(detail=False, methods=['get'])
+    def best_attack(self, request):
+        league = request.query_params.get('league')
+        season = request.query_params.get('season')
+        limit = int(request.query_params.get('limit', 10))
+
+        matches = Match.objects.all()
+
+        if league:
+            matches = matches.filter(league__code=league)
+
+        if season:
+            date_from, date_to = parse_season(season)
+            matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
+
+        teams_stats = []
+        for club in Club.objects.all():
+            club_matches = matches.filter(
+                Q(home_team__club=club) | Q(away_team__club=club)
+            )
+
+            games = club_matches.count()
+            if games == 0:
+                continue
+            
+            goals = 0
+            shots = 0
+            for match in club_matches:
+                if match.home_team.club == club:
+                    goals += match.ft_home_goals or 0
+                    shots += match.home_shots or 0
+                else:
+                    goals += match.ft_away_goals or 0
+                    shots += match.away_shots or 0
+
+            goals_per_game = goals / games
+            shots_per_game = shots / games
+
+            attack_score = (goals_per_game * 0.8) + (shots_per_game * 0.2)
+
+            teams_stats.append({
+                "club": club.name,
+                "games": games,
+                "goals_per_game": round(goals_per_game, 2),
+                "shots_per_game": round(shots_per_game, 2),
+                "attack_score": round(attack_score, 2)
+            })
+
+        teams_stats = sorted(teams_stats, key=lambda x: x['attack_score'], reverse=True)[:limit]
+
+        return Response(teams_stats)
+
+    
+    @action(detail=False, methods=['get'])
+    def best_defense(self, request):
+        league = request.query_params.get('league')
+        season = request.query_params.get('season')
+        limit = int(request.query_params.get('limit', 10))
+
+        matches = Match.objects.all()
+
+        if league:
+            matches = matches.filter(league__code=league)
+
+        if season:
+            date_from, date_to = parse_season(season)
+            matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
+
+        teams_stats = []
+        for club in Club.objects.all():
+            club_matches = matches.filter(
+                Q(home_team__club=club) | Q(away_team__club=club)
+            )
+
+            games = club_matches.count()
+            if games == 0:
+                continue
+            
+            goals_conceded = 0
+            shots_conceded = 0
+            for match in club_matches:
+                if match.home_team.club == club:
+                    goals_conceded += match.ft_away_goals or 0
+                    shots_conceded += match.away_shots or 0
+                else:
+                    goals_conceded += match.ft_home_goals or 0
+                    shots_conceded += match.home_shots or 0
+
+            goals_conceded_per_game = goals_conceded / games
+            shots_conceded_per_game = shots_conceded / games
+
+            defense_score = (goals_conceded_per_game * 0.8) + (shots_conceded_per_game * 0.2)
+
+            teams_stats.append({
+                "club": club.name,
+                "games": games,
+                "goals_conceded_per_game": round(goals_conceded_per_game, 2),
+                "shots_conceded_per_game": round(shots_conceded_per_game, 2),
+                "defense_score": round(defense_score, 2)
+            })
+
+        teams_stats = sorted(teams_stats, key=lambda x: x['defense_score'])[:limit]
+
+        return Response(teams_stats)
+
     # Filtering options
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['league__code']
