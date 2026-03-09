@@ -3,7 +3,8 @@ from django.shortcuts import render
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Q, Count, Sum, Case, When, IntegerField, Min, Max
+from django.db.models import Q, Count, Sum, Case, When, IntegerField, Min, Max, Avg, ExpressionWrapper, F, FloatField
+from django.db.models.functions import Coalesce, Cast
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import Team, Club
@@ -362,6 +363,13 @@ class TeamViewSet(viewsets.ModelViewSet):
         season = request.query_params.get('season')
         limit = int(request.query_params.get('limit', 10))
 
+        if season:
+            default_min_games = 20
+        else:
+            default_min_games = 100
+
+        min_games = int(request.query_params.get('min_games', default_min_games))
+
         matches = Match.objects.all()
 
         if league:
@@ -369,34 +377,41 @@ class TeamViewSet(viewsets.ModelViewSet):
 
         if season:
             date_from, date_to = parse_season(season)
-            matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
+            matches = matches.filter(match_date__range=(date_from, date_to))
 
-        teams_stats = []
+        results = []
+
         for club in Club.objects.all():
-            club_matches = matches.filter(
-                Q(home_team__club=club) | Q(away_team__club=club)
+
+            home_stats = matches.filter(home_team__club=club).aggregate(
+                games=Count('id'),
+                goals=Coalesce(Sum('ft_home_goals'), 0),
+                shots=Coalesce(Sum('home_shots'), 0)
             )
 
-            games = club_matches.count()
+            away_stats = matches.filter(away_team__club=club).aggregate(
+                games=Count('id'),
+                goals=Coalesce(Sum('ft_away_goals'), 0),
+                shots=Coalesce(Sum('away_shots'), 0)
+            )
+
+            games = home_stats["games"] + away_stats["games"]
+
             if games == 0:
                 continue
-            
-            goals = 0
-            shots = 0
-            for match in club_matches:
-                if match.home_team.club == club:
-                    goals += match.ft_home_goals or 0
-                    shots += match.home_shots or 0
-                else:
-                    goals += match.ft_away_goals or 0
-                    shots += match.away_shots or 0
+
+            if games < min_games:
+                continue
+
+            goals = home_stats["goals"] + away_stats["goals"]
+            shots = home_stats["shots"] + away_stats["shots"]
 
             goals_per_game = goals / games
             shots_per_game = shots / games
 
             attack_score = (goals_per_game * 0.8) + (shots_per_game * 0.2)
 
-            teams_stats.append({
+            results.append({
                 "club": club.name,
                 "games": games,
                 "goals_per_game": round(goals_per_game, 2),
@@ -404,16 +419,23 @@ class TeamViewSet(viewsets.ModelViewSet):
                 "attack_score": round(attack_score, 2)
             })
 
-        teams_stats = sorted(teams_stats, key=lambda x: x['attack_score'], reverse=True)[:limit]
+        results = sorted(results, key=lambda x: x['attack_score'], reverse=True)[:limit]
 
-        return Response(teams_stats)
+        return Response(results)
 
     
     @action(detail=False, methods=['get'])
-    def best_defense(self, request):
+    def best_defence(self, request):
         league = request.query_params.get('league')
         season = request.query_params.get('season')
         limit = int(request.query_params.get('limit', 10))
+
+        if season:
+            default_min_games = 20
+        else:
+            default_min_games = 100
+
+        min_games = int(request.query_params.get('min_games', default_min_games))
 
         matches = Match.objects.all()
 
@@ -422,44 +444,52 @@ class TeamViewSet(viewsets.ModelViewSet):
 
         if season:
             date_from, date_to = parse_season(season)
-            matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
+            matches = matches.filter(match_date__range=(date_from, date_to))
 
-        teams_stats = []
+        results = []
+
         for club in Club.objects.all():
-            club_matches = matches.filter(
-                Q(home_team__club=club) | Q(away_team__club=club)
+
+            home_stats = matches.filter(home_team__club=club).aggregate(
+                games=Count('id'),
+                goals_conceded=Coalesce(Sum('ft_away_goals'), 0),
+                shots_conceded=Coalesce(Sum('away_shots'), 0)
             )
 
-            games = club_matches.count()
+            away_stats = matches.filter(away_team__club=club).aggregate(
+                games=Count('id'),
+                goals_conceded=Coalesce(Sum('ft_home_goals'), 0),
+                shots_conceded=Coalesce(Sum('home_shots'), 0)
+            )
+
+            games = home_stats["games"] + away_stats["games"]
+
             if games == 0:
                 continue
-            
-            goals_conceded = 0
-            shots_conceded = 0
-            for match in club_matches:
-                if match.home_team.club == club:
-                    goals_conceded += match.ft_away_goals or 0
-                    shots_conceded += match.away_shots or 0
-                else:
-                    goals_conceded += match.ft_home_goals or 0
-                    shots_conceded += match.home_shots or 0
+
+            if games < min_games:
+                continue
+
+            goals_conceded = home_stats["goals_conceded"] + away_stats["goals_conceded"]
+            shots_conceded = home_stats["shots_conceded"] + away_stats["shots_conceded"]
 
             goals_conceded_per_game = goals_conceded / games
             shots_conceded_per_game = shots_conceded / games
 
-            defense_score = (goals_conceded_per_game * 0.8) + (shots_conceded_per_game * 0.2)
+            defence_score = 1 / ((goals_conceded_per_game * 0.8) + (shots_conceded_per_game * 0.2))
 
-            teams_stats.append({
+            results.append({
                 "club": club.name,
                 "games": games,
                 "goals_conceded_per_game": round(goals_conceded_per_game, 2),
                 "shots_conceded_per_game": round(shots_conceded_per_game, 2),
-                "defense_score": round(defense_score, 2)
+                "defence_score": round(defence_score, 2)
             })
 
-        teams_stats = sorted(teams_stats, key=lambda x: x['defense_score'])[:limit]
+        results = sorted(results, key=lambda x: x['defence_score'], reverse=True)[:limit]
 
-        return Response(teams_stats)
+        return Response(results)
+
 
     # Filtering options
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
