@@ -491,6 +491,127 @@ class TeamViewSet(viewsets.ModelViewSet):
         return Response(results)
 
 
+    @action(detail=False, methods=['get'])
+    def over_under_performing(self, request):
+        league = request.query_params.get('league')
+        season = request.query_params.get('season')
+        limit = int(request.query_params.get('limit', 24))
+
+        if not league:
+            return Response({'error': 'League code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        matches = Match.objects.filter(league__code=league)
+
+        if season:
+            try:
+                date_from, date_to = parse_season(season)
+                matches = matches.filter(match_date__range=(date_from, date_to))
+            except ValueError:
+                return Response({'error': 'Invalid season format. Use "YYYY-YYYY", "YYYY/YYYY", "YY-YY", "YY/YY" or "YYYY".'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not matches.exists():
+            return Response({'error': 'No matches found for the given filters.'}, status=status.HTTP_404_NOT_FOUND)
+
+        results = []
+        clubs = Club.objects.filter(Q(teams__home_matches__in=matches) | Q(teams__away_matches__in=matches)).distinct()
+
+        for club in clubs:
+            club_matches = matches.filter(Q(home_team__club=club) | Q(away_team__club=club))
+            total_matches = club_matches.count()
+            elo_matches_used = 0
+
+            actual_points = 0
+            expected_points = 0
+            goals_for = 0
+            goals_against = 0
+
+            for match in club_matches:
+                if match.home_elo_pre is None or match.away_elo_pre is None:
+                    continue
+                
+                elo_matches_used += 1
+
+                if match.home_team.club == club:
+                    team_elo = match.home_elo_pre
+                    opponent_elo = match.away_elo_pre
+                    goals_for += match.ft_home_goals
+                    goals_against += match.ft_away_goals
+
+                    if match.ft_result == 'H':
+                        actual_points += 3
+                    elif match.ft_result == 'D':
+                        actual_points += 1
+                
+                else:
+                    team_elo = match.away_elo_pre
+                    opponent_elo = match.home_elo_pre
+                    goals_for += match.ft_away_goals
+                    goals_against += match.ft_home_goals
+
+                    if match.ft_result == 'A':
+                        actual_points += 3
+                    elif match.ft_result == 'D':
+                        actual_points += 1
+                
+                expected_win_prob = 1 / (1 + 10 ** ((opponent_elo - team_elo) / 400))
+                expected_points += expected_win_prob * 3
+
+            if total_matches == 0:
+                continue
+            
+            coverage_percentage = (elo_matches_used / total_matches) * 100
+            # Need at least 50% of matches with ELO data to consider evaluating performance vs expectations
+            if coverage_percentage < 50:
+                continue
+
+            results.append({
+                "team": club.name,
+                "actual_points": actual_points,
+                "expected_points": round(expected_points, 2),
+                "goal_difference": goals_for - goals_against,
+                "elo_coverage_percentage": round(coverage_percentage, 2)
+            })
+
+        if not results:
+            return Response({'error': 'insufficient ELO data to evaluate performance for teams in this league/season.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Actual table position
+        actual_sorted = sorted(results, key=lambda x: (-x['actual_points'], -x['goal_difference'], x['team']))
+
+        for index, team in enumerate(actual_sorted, start=1):
+            team['actual_position'] = index
+
+        # Expected table position
+        expected_sorted = sorted(actual_sorted, key=lambda x: (-x['expected_points'], x['team']))
+
+        final_results = []
+
+        for index, team in enumerate(expected_sorted, start=1):
+            performance_diff = team['actual_points'] - team['expected_points']
+
+            # +/1 point threshold for over/under performing
+            if abs(performance_diff) <= 1:
+                performance = 'Performing as Expected'
+            elif performance_diff > 1:
+                performance = 'Overperforming'
+            else:
+                performance = 'Underperforming'
+
+            final_results.append({
+                "team": team['team'],
+                "expected_position": index,
+                "actual_position": team['actual_position'],
+                "actual_points": team['actual_points'],
+                "expected_points": team['expected_points'],
+                "goal_difference": team['goal_difference'],
+                "performance_diff": round(performance_diff, 2),
+                "performance": performance,
+                "elo_coverage_percentage": team['elo_coverage_percentage']
+            })
+        
+        return Response(final_results[:limit])
+
+
     # Filtering options
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['league__code']
