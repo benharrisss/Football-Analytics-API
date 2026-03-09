@@ -1,11 +1,12 @@
 from django.shortcuts import render
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import F
+from django.db.models import F, Q, Sum, Max, Count, Case, When, IntegerField
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from .models import Match
+from teams.models import Club
 from .serializers import MatchSerializer
 from .filters import MatchFilter
 from teams.services.team_dna import parse_season
@@ -116,6 +117,169 @@ class MatchViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(upsets, many=True)
 
         return Response(serializer.data)
+
+    
+    @action(detail=False, methods=['get'])
+    def league_table(self, request):
+        league_code = request.query_params.get('league')
+        season = request.query_params.get('season')
+
+        if not league_code:
+            return Response({"error": "League code is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        matches = Match.objects.filter(league__code=league_code)
+
+        if not matches.exists():
+            return Response({"error": f"No matches found for the specified league {league_code}"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Optional season filtering for specific league tables
+        if season:
+            try:
+                date_from, date_to = parse_season(season)
+                matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
+            except ValueError:
+                return Response({"error": "Invalid season format."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not matches.exists():
+                return Response({"error": f"No matches found for the specified league {league_code} in season {season}"}, status=status.HTTP_404_NOT_FOUND)
+
+        table = []
+
+        clubs = Club.objects.filter(
+            Q(teams__home_matches__in=matches) | Q(teams__away_matches__in=matches)
+        ).distinct()
+
+        for club in clubs:
+            club_matches = matches.filter(
+                Q(home_team__club=club) | Q(away_team__club=club)
+            )
+
+            played = club_matches.count()
+            if played == 0:
+                continue
+            
+            wins = club_matches.filter(
+                Q(home_team__club=club, ft_result='H') | Q(away_team__club=club, ft_result='A')
+            ).count()
+
+            draws = club_matches.filter(ft_result='D').count()
+
+            losses = club_matches.filter(
+                Q(home_team__club=club, ft_result='A') | Q(away_team__club=club, ft_result='H')
+            ).count()
+
+            goals_for = club_matches.aggregate(total=Sum(
+                Case(
+                    When(home_team__club=club, then='ft_home_goals'),
+                    When(away_team__club=club, then='ft_away_goals'),
+                    output_field=IntegerField()
+                )
+            ))['total'] or 0
+
+            goals_against = club_matches.aggregate(total=Sum(
+                Case(
+                    When(home_team__club=club, then='ft_away_goals'),
+                    When(away_team__club=club, then='ft_home_goals'),
+                    output_field=IntegerField()
+                )
+            ))['total'] or 0
+
+            goal_difference = goals_for - goals_against
+            points = (wins * 3) + draws
+
+            table.append({
+                "team": club.name,
+                "played": played,
+                "wins": wins,
+                "draws": draws,
+                "losses": losses,
+                "goals_for": goals_for,
+                "goals_against": goals_against,
+                "goal_difference": goal_difference,
+                "points": points
+            })
+
+        table = sorted(table, key=lambda x: (-x['points'], -x['goal_difference'], -x['goals_for'], x['team']))
+
+        new_table = []
+
+        for index, team in enumerate(table, start=1):
+            new_table.append({
+                "position": index,
+                "team": team['team'],
+                "played": team['played'],
+                "wins": team['wins'],
+                "draws": team['draws'],
+                "losses": team['losses'],
+                "goals_for": team['goals_for'],
+                "goals_against": team['goals_against'],
+                "goal_difference": team['goal_difference'],
+                "points": team['points'],
+            })
+        
+        return Response(new_table)
+
+
+    @action(detail=False, methods=['get'])
+    def league_stats(self, request):
+        league_code = request.query_params.get('league')
+        season = request.query_params.get('season')
+
+        if not league_code:
+            return Response({"error": "League code is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        matches = Match.objects.filter(league__code=league_code)
+        league_name = matches.values_list('league__name', flat=True).first()
+
+        if season:
+            try:
+                date_from, date_to = parse_season(season)
+                matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
+            except ValueError:
+                return Response({"error": "Invalid season format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        total_matches = matches.count()
+
+        if total_matches == 0:
+            return Response({"error": f"No matches found for the specified league {league_code} in season {season}"}, status=status.HTTP_404_NOT_FOUND)
+
+        total_goals = matches.aggregate(total=Sum(F('ft_home_goals') + F('ft_away_goals')))['total'] or 0
+        total_shots = matches.aggregate(total=Sum(F('home_shots') + F('away_shots')))['total'] or 0
+        total_corners = matches.aggregate(total=Sum(F('home_corners') + F('away_corners')))['total'] or 0
+        
+        total_yellow_cards = matches.aggregate(total=Sum(F('home_yellow_cards') + F('away_yellow_cards')))['total'] or 0
+        total_red_cards = matches.aggregate(total=Sum(F('home_red_cards') + F('away_red_cards')))['total'] or 0
+        total_fouls = matches.aggregate(total=Sum(F('home_fouls') + F('away_fouls')))['total'] or 0
+
+        home_wins = matches.filter(ft_result='H').count()
+        away_wins = matches.filter(ft_result='A').count()
+        draws = matches.filter(ft_result='D').count()
+
+        highest_scoring_match = matches.aggregate(max_goals=Max(F('ft_home_goals') + F('ft_away_goals')))['max_goals'] or 0
+
+        clean_sheet_matches = matches.filter(
+            Q(ft_home_goals=0) | Q(ft_away_goals=0)
+        ).count()
+
+        response_data = {
+            "league": league_code,
+            "league_name": league_name,
+            "season": season if season else "All Time",
+            "matches_played": total_matches,
+            "average_goals_per_match": round(total_goals / total_matches, 2),
+            "average_shots_per_match": round(total_shots / total_matches, 2),
+            "average_corners_per_match": round(total_corners / total_matches, 2),
+            "average_yellow_cards_per_match": round(total_yellow_cards / total_matches, 2),
+            "average_red_cards_per_match": round(total_red_cards / total_matches, 2),
+            "average_fouls_per_match": round(total_fouls / total_matches, 2),
+            "home_win_percentage": round((home_wins / total_matches) * 100, 2),
+            "away_win_percentage": round((away_wins / total_matches) * 100, 2),
+            "draw_percentage": round((draws / total_matches) * 100, 2),
+            "most_goals_in_a_match": highest_scoring_match,
+            "clean_sheet_percentage": round((clean_sheet_matches / total_matches) * 100, 2),
+        }
+
+        return Response(response_data)
 
 
     # Filtering options
