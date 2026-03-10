@@ -1,20 +1,36 @@
 from django.shortcuts import render
-from rest_framework import viewsets, status
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F, Q, Sum, Max, Count, Case, When, IntegerField
+from rest_framework import viewsets, status
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Match
 from teams.models import Club
 from .serializers import MatchSerializer
 from .filters import MatchFilter
 from teams.services.team_dna import parse_season
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 class MatchViewSet(viewsets.ModelViewSet):
     queryset = Match.objects.all().order_by('-match_date')
     serializer_class = MatchSerializer
+    
 
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve', 'league_table', 'biggest_upsets']:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='elo_diff', description='Minimum ELO difference to consider a match an upset', required=False, type=OpenApiTypes.FLOAT),
+            OpenApiParameter(name='limit', description='Number of matches to return', required=False, type=OpenApiTypes.INT),])
     @action(detail=False, methods=['get'])
     def upsets(self, request):
         league = request.query_params.get('league')
@@ -63,6 +79,12 @@ class MatchViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='min_odds', description='Minimum odds to consider a match an upset', required=False, type=OpenApiTypes.FLOAT),
+            OpenApiParameter(name='limit', description='Number of matches to return', required=False, type=OpenApiTypes.INT),])
     @action(detail=False, methods=['get'])
     def upsets_by_odds(self, request):
         league = request.query_params.get('league')
@@ -95,6 +117,9 @@ class MatchViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='limit', description='Number of matches to return', required=False, type=OpenApiTypes.INT),])
     @action(detail=False, methods=['get'])
     def biggest_upsets(self, request):
         limit = int(request.query_params.get('limit', 20))
@@ -119,6 +144,10 @@ class MatchViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=True, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),])
     @action(detail=False, methods=['get'])
     def league_table(self, request):
         league_code = request.query_params.get('league')
@@ -220,6 +249,10 @@ class MatchViewSet(viewsets.ModelViewSet):
         return Response(new_table)
 
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=True, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),])
     @action(detail=False, methods=['get'])
     def league_stats(self, request):
         league_code = request.query_params.get('league')

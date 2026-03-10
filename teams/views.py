@@ -1,21 +1,36 @@
 from datetime import datetime
 from django.shortcuts import render
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
 from django.db.models import Q, Count, Sum, Case, When, IntegerField, Min, Max, Avg, ExpressionWrapper, F, FloatField
 from django.db.models.functions import Coalesce, Cast
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Team, Club
 from .serializers import TeamSerializer
 from matches.models import Match
 from teams.services.team_dna import calculate_team_dna, parse_season, get_filtered_matches
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all().order_by('name')
     serializer_class = TeamSerializer
+    
 
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve', 'stats', 'head_to_head']:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='date_from', description='Start date for stats in YYYY-MM-DD format', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='date_to', description='End date for stats in YYYY-MM-DD format', required=False, type=OpenApiTypes.STR),])
     @action(detail=True, methods=['get'])
     def stats(self, request, pk=None):
         team = self.get_object()
@@ -116,6 +131,16 @@ class TeamViewSet(viewsets.ModelViewSet):
         })
 
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='team1_id', description='ID of the first team', required=False, type=OpenApiTypes.INT),
+            OpenApiParameter(name='team2_id', description='ID of the second team', required=False, type=OpenApiTypes.INT),
+            OpenApiParameter(name='team1', description='Name of the first team (alternative to team1_id)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='team2', description='Name of the second team (alternative to team2_id)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='date_from', description='Start date for head-to-head in YYYY-MM-DD format', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='date_to', description='End date for head-to-head in YYYY-MM-DD format', required=False, type=OpenApiTypes.STR),]
+    )
     @action(detail=False, methods=['get'])
     def head_to_head(self, request):
         team1_id = request.query_params.get('team1_id', None)
@@ -269,6 +294,15 @@ class TeamViewSet(viewsets.ModelViewSet):
         })
 
     
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='date_from', description='Start date for DNA calculation in YYYY-MM-DD format (overrides season if both provided)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='date_to', description='End date for DNA calculation in YYYY-MM-DD format (overrides season if both provided)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='last_n', description='Calculate DNA based on last N matches instead of date range or season', required=False, type=OpenApiTypes.INT),
+        ]
+    )
     @action(detail=True, methods=['get'])
     def dna(self, request, pk=None):
         team = self.get_object()
@@ -356,7 +390,13 @@ class TeamViewSet(viewsets.ModelViewSet):
             "dna_profile": dna_profile
         })
 
-    
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='limit', description='Number of teams to return', required=False, type=OpenApiTypes.INT),
+            OpenApiParameter(name='min_games', description='Minimum number of games played to be included in the ranking', required=False, type=OpenApiTypes.INT),])
     @action(detail=False, methods=['get'])
     def best_attack(self, request):
         league = request.query_params.get('league')
@@ -424,6 +464,12 @@ class TeamViewSet(viewsets.ModelViewSet):
         return Response(results)
 
     
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='limit', description='Number of teams to return', required=False, type=OpenApiTypes.INT),
+            OpenApiParameter(name='min_games', description='Minimum number of games played to be included in the ranking', required=False, type=OpenApiTypes.INT),])
     @action(detail=False, methods=['get'])
     def best_defence(self, request):
         league = request.query_params.get('league')
@@ -491,6 +537,11 @@ class TeamViewSet(viewsets.ModelViewSet):
         return Response(results)
 
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='league', description='Filter by league code e.g E0, E1, E2, E3)', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='season', description='Season format e.g. 20/21, 2023-2024 etc.', required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name='limit', description='Number of teams to return', required=False, type=OpenApiTypes.INT),])
     @action(detail=False, methods=['get'])
     def over_under_performing(self, request):
         league = request.query_params.get('league')
