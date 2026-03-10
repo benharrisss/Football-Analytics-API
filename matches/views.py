@@ -156,6 +156,9 @@ class MatchViewSet(viewsets.ModelViewSet):
         if not league_code:
             return Response({"error": "League code is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        if league_code not in ['E0', 'E1', 'E2', 'E3']:
+            return Response({"error": "Invalid league code. Valid options are E0, E1, E2, E3."}, status=status.HTTP_400_BAD_REQUEST)
+
         matches = Match.objects.filter(league__code=league_code)
 
         if not matches.exists():
@@ -260,6 +263,9 @@ class MatchViewSet(viewsets.ModelViewSet):
 
         if not league_code:
             return Response({"error": "League code is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if league_code not in ['E0', 'E1', 'E2', 'E3']:
+            return Response({"error": "Invalid league code. Valid options are E0, E1, E2, E3."}, status=status.HTTP_400_BAD_REQUEST)
 
         matches = Match.objects.filter(league__code=league_code)
         league_name = matches.values_list('league__name', flat=True).first()

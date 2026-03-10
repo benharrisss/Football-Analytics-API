@@ -44,7 +44,7 @@ class TeamViewSet(viewsets.ModelViewSet):
             if date_to:
                 date_to = datetime.strptime(date_to, '%Y-%m-%d').date()
         except ValueError:
-            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
         matches = Match.objects.filter(
             Q(home_team__club=team.club) | 
@@ -56,7 +56,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 
             # League filter validation
             if not matches.exists():
-                return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=400)
+                return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=status.HTTP_404_NOT_FOUND)
 
         # Apply date range filter
         if date_from:
@@ -158,20 +158,20 @@ class TeamViewSet(viewsets.ModelViewSet):
             elif team1_name:
                 team1 = Team.objects.filter(name=team1_name).first()
             else:
-                return Response({'error': 'Please provide either team1_id or team1 query parameter.'}, status=400)
+                return Response({'error': 'Please provide either team1_id or team1 query parameter.'}, status=status.HTTP_400_BAD_REQUEST)
 
             if team2_id:
                 team2 = Team.objects.get(id=team2_id)
             elif team2_name:
                 team2 = Team.objects.filter(name=team2_name).first()
             else:
-                return Response({'error': 'Please provide either team2_id or team2 query parameter.'}, status=400)
+                return Response({'error': 'Please provide either team2_id or team2 query parameter.'}, status=status.HTTP_400_BAD_REQUEST)
             
         except Team.DoesNotExist:
-            return Response({'error': 'One or both team IDs do not exist.'}, status=404)
+            return Response({'error': 'One or both team IDs do not exist.'}, status=status.HTTP_404_NOT_FOUND)
 
         if not team1 or not team2:
-            return Response({'error': 'One or both team names could not be found.'}, status=404)
+            return Response({'error': 'One or both team names could not be found.'}, status=status.HTTP_404_NOT_FOUND)
 
         club1 = team1.club
         club2 = team2.club
@@ -183,10 +183,10 @@ class TeamViewSet(viewsets.ModelViewSet):
             if date_to:
                 date_to = datetime.strptime(date_to, '%Y-%m-%d').date()
         except ValueError:
-            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if date_from and date_to and date_from > date_to:
-            return Response({'error': 'date_from cannot be after date_to.'}, status=400)
+            return Response({'error': 'date_from cannot be after date_to.'}, status=status.HTTP_400_BAD_REQUEST)
 
         matches = Match.objects.filter(
             (Q(home_team__club=club1) & Q(away_team__club=club2)) |
@@ -199,7 +199,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 
             # League filter validation
             if not matches.exists():
-                return Response({'error': f'No matches found between {team1.name} and {team2.name} in league {league}.'}, status=400)
+                return Response({'error': f'No matches found between {team1.name} and {team2.name} in league {league}.'}, status=status.HTTP_404_NOT_FOUND)
 
         # Apply date range filter
         if date_from:
@@ -347,7 +347,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         matches = get_filtered_matches(team=team, league=league, date_from=date_from, date_to=date_to, last_n=last_n)
 
         if not matches.exists():
-            return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_404_NOT_FOUND)
 
         league_qs = matches.values_list('league__name', flat=True).distinct()
 
@@ -358,7 +358,7 @@ class TeamViewSet(viewsets.ModelViewSet):
                 Q(home_team__club=team.club) | Q(away_team__club=team.club)).exists()
 
             if not team_matches:
-                return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': f'No matches found for {team.name} in league {league}.'}, status=status.HTTP_404_NOT_FOUND)
 
             display_league = matches.first().league.name
         elif league_qs.count() == 1:
@@ -376,7 +376,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         )
 
         if not dna_profile:
-            return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'No matches found for the given filters to calculate DNA.'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response({
             "team": team.name,
@@ -550,6 +550,9 @@ class TeamViewSet(viewsets.ModelViewSet):
 
         if not league:
             return Response({'error': 'League code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if league not in ['E0', 'E1', 'E2', 'E3']:
+            return Response({'error': 'Invalid league code. Use E0, E1, E2 or E3.'}, status=status.HTTP_400_BAD_REQUEST)
 
         matches = Match.objects.filter(league__code=league)
 
