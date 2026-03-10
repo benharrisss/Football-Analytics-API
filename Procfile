@@ -1,1 +1,1 @@
-web: gunicorn Football-Analytics-API.wsgi:application
+web: gunicorn core.wsgi:application
