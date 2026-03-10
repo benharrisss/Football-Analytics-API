@@ -1,0 +1,1 @@
+web: gunicorn Football-Analytics-API.wsgi:application
