@@ -23,7 +23,7 @@ from teams.views import TeamViewSet
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 def root(request):
-    return HttpResponse("Welcome to the Football Match Statistics API! Visit /api/ for API endpoints.")
+    return HttpResponse("Welcome to the Football Match Statistics API! Visit /api/ for API endpoints.", content_type="text/plain")
 
 router = DefaultRouter()
 router.register(r'matches', MatchViewSet)
