@@ -22,11 +22,15 @@ from matches.views import MatchViewSet
 from teams.views import TeamViewSet
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+def root(request):
+    return HttpResponse("Welcome to the Football Match Statistics API! Visit /api/ for API endpoints.")
+
 router = DefaultRouter()
 router.register(r'matches', MatchViewSet)
 router.register(r'teams', TeamViewSet)
 
 urlpatterns = [
+    path("", root, name="root"),
     path('admin/', admin.site.urls),
     path('schema/', SpectacularAPIView.as_view(), name='schema'),
     path('swagger/', SpectacularSwaggerView.as_view(url_name='schema')),
