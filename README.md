@@ -1,4 +1,4 @@
-[API_Documentation_SwaggerUI.pdf](https://github.com/user-attachments/files/26039100/API_Documentation_SwaggerUI.pdf)# Football Analytics API
+# Football Analytics API
 
 RESTful API coded in Python using the Django REST Framework providing football match/team analytics over 25 years of English league football data.
 
