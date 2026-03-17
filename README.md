@@ -33,11 +33,12 @@ pip install -r requirements.txt
 ```
 
 ### 3) Configure environment variables
-Create a .env file (or set env vars in the terminal):
-
-- `SECRET_KEY` (e.g. 'thisisbensverysecretkey')
-- `DEBUG` (Set True for local development)
-- `DATABASE_URL` (e.g. postgres://USER:PASSWORD@localhost:5432/football_api)
+Note: .env files aren't automatically loaded, so it's recommended to set these variables in your shell:
+```bash
+export SECRET_KEY="thisisbenssecretkey-butthiscanbesettoanyhting"
+export DEBUG=True
+export DATABASE_URL="postgres://postgres:<password>@localhost:5432/football_analytics_db"
+```
 
 ### 4) Run migrations
 ```bash
