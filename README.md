@@ -68,7 +68,7 @@ python manage.py runserver
 
 ### 200 OK - Public: league table (No authorisation needed)
 Request:
-`GET $BASE_URL/api/matches/league_table/?league=E0&season=23/24`
+`GET $BASE_URL/api/matches/league_table/?league=E0&season=23/24`  
 Expected Response:
 ```json
 [
@@ -126,8 +126,8 @@ Expected Response:
 
 ### 200 OK - Obtain JWT access token: token
 Request:
-`GET $BASE_URL/api/token`
-(Enter username and password of an authorised user)
+`GET $BASE_URL/api/token`  
+(Enter username and password of an authorised user)  
 Expected Response:
 ```json
 {
@@ -135,11 +135,11 @@ Expected Response:
     "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzczNzExMjcyLCJpYXQiOjE3NzM3MTA5NzIsImp0aSI6IjkyZGZlNDI1MzhmNTQ1ZjE4MmIzMjJjMWI2NzA4OGFlIiwidXNlcl9pZCI6IjEifQ.2yZjYqTTv9-UiCKZd7aos8g8t8X41aQm8TsXT0D79QM"
 }
 ```
-(Note this is not one of the access keys to authorise on the deployed API)
+(Note this is not one of the access keys to authorise on the deployed API)  
 
 ### 200 OK - Private: best attack (Authorisation needed)
 Request:
-`GET $BASE_URL/api/teams/best_attack/?league=E0`
+`GET $BASE_URL/api/teams/best_attack/?league=E0`  
 Expected Response:
 ```json
 [
@@ -177,7 +177,7 @@ Expected Response:
 
 ### 400 Bad Request - Required 'league' parameter missing: league table
 Request:
-`GET $BASE_URL/api/matches/league_table/?season=23/24`
+`GET $BASE_URL/api/matches/league_table/?season=23/24`  
 Expected Response:
 ```json
 {
@@ -187,7 +187,7 @@ Expected Response:
 
 ### 401 Unauthorised - Incorrect username and password for JWT access token: token
 Request:
-`GET $BASE_URL/api/token`
+`GET $BASE_URL/api/token`  
 Expected Response:
 ```json
 {
@@ -197,7 +197,7 @@ Expected Response:
 
 ### 401 Unauthorised - Access attempted to protected endpoint without token: best attack
 Request:
-`GET $BASE_URL/api/teams/best_attack/?league=E0`
+`GET $BASE_URL/api/teams/best_attack/?league=E0`  
 Expected Response:
 ```json
 {
@@ -207,7 +207,7 @@ Expected Response:
 
 ### 404 Not Found - Invalid team IDs: head to head
 Request:
-`GET $BASE_URL/api/teams/head_to_head/?team1_id=9999&team2_id=6767`
+`GET $BASE_URL/api/teams/head_to_head/?team1_id=9999&team2_id=6767`  
 Expected Response:
 ```json
 {
