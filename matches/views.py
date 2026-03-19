@@ -73,6 +73,7 @@ class MatchViewSet(viewsets.ModelViewSet):
             elif winner == 'away' and away_elo < home_elo:
                 upsets.append(match)
 
+        # Sort upsets by ELO difference and return top results
         upsets = sorted(upsets, key=lambda m: abs(m.home_elo_pre - m.away_elo_pre), reverse=True)[:limit]
         serializer = self.get_serializer(upsets, many=True)
 
@@ -102,6 +103,7 @@ class MatchViewSet(viewsets.ModelViewSet):
             matches = matches.filter(match_date__gte=date_from, match_date__lte=date_to)
 
         upsets = []
+        # Identify upsets based on match result and odds
         for match in matches:
             if match.ft_home_goals > match.ft_away_goals:
                 if match.home_win_odds and match.home_win_odds >= min_odds:
@@ -111,6 +113,7 @@ class MatchViewSet(viewsets.ModelViewSet):
                 if match.away_win_odds and match.away_win_odds >= min_odds:
                     upsets.append(match)
             
+        # Sort upsets by odds and return top results
         upsets = sorted(upsets, key=lambda m: max(m.home_win_odds or 0, m.away_win_odds or 0), reverse=True)[:limit]
         serializer = self.get_serializer(upsets, many=True)
 
@@ -181,6 +184,7 @@ class MatchViewSet(viewsets.ModelViewSet):
             Q(teams__home_matches__in=matches) | Q(teams__away_matches__in=matches)
         ).distinct()
 
+        # Calculate league table stats for each club based on matches in the specified league and season
         for club in clubs:
             club_matches = matches.filter(
                 Q(home_team__club=club) | Q(away_team__club=club)
@@ -231,6 +235,7 @@ class MatchViewSet(viewsets.ModelViewSet):
                 "points": points
             })
 
+        # Sort the table by points, then goal difference, then goals for, and finally alphabetically by team name
         table = sorted(table, key=lambda x: (-x['points'], -x['goal_difference'], -x['goals_for'], x['team']))
 
         new_table = []
@@ -282,6 +287,7 @@ class MatchViewSet(viewsets.ModelViewSet):
         if total_matches == 0:
             return Response({"error": f"No matches found for the specified league {league_code} in season {season}"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Calculate aggregate stats for the league and season
         total_goals = matches.aggregate(total=Sum(F('ft_home_goals') + F('ft_away_goals')))['total'] or 0
         total_shots = matches.aggregate(total=Sum(F('home_shots') + F('away_shots')))['total'] or 0
         total_corners = matches.aggregate(total=Sum(F('home_corners') + F('away_corners')))['total'] or 0

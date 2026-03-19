@@ -403,6 +403,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         season = request.query_params.get('season')
         limit = int(request.query_params.get('limit', 10))
 
+        # Set default min games based on whether season is applied
         if season:
             default_min_games = 20
         else:
@@ -421,6 +422,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 
         results = []
 
+        # Calculate attack score for each club based on goals and shots per game
         for club in Club.objects.all():
 
             home_stats = matches.filter(home_team__club=club).aggregate(
@@ -476,6 +478,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         season = request.query_params.get('season')
         limit = int(request.query_params.get('limit', 10))
 
+        # Set default min games based on whether season is applied
         if season:
             default_min_games = 20
         else:
@@ -494,6 +497,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 
         results = []
 
+        # Calculate defence score for each club based on goals and shots conceded per game (lower is better)
         for club in Club.objects.all():
 
             home_stats = matches.filter(home_team__club=club).aggregate(
@@ -579,12 +583,14 @@ class TeamViewSet(viewsets.ModelViewSet):
             goals_for = 0
             goals_against = 0
 
+            # Only consider matches where ELO data is available for both teams
             for match in club_matches:
                 if match.home_elo_pre is None or match.away_elo_pre is None:
                     continue
                 
                 elo_matches_used += 1
 
+                # Determine if club is home or away team and calculate points and goal stats accordingly
                 if match.home_team.club == club:
                     team_elo = match.home_elo_pre
                     opponent_elo = match.away_elo_pre
@@ -607,6 +613,7 @@ class TeamViewSet(viewsets.ModelViewSet):
                     elif match.ft_result == 'D':
                         actual_points += 1
                 
+                # Calculate expected points based on ELO ratings using the standard ELO expected score formula
                 expected_win_prob = 1 / (1 + 10 ** ((opponent_elo - team_elo) / 400))
                 expected_points += expected_win_prob * 3
 

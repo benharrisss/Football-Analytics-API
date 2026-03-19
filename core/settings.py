@@ -21,11 +21,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "False") == "True"
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-CHANGE_THIS_TO_A_SECURE_KEY_FOR_PRODUCTION"
+    else:
+        raise ValueError("SECRET_KEY environment variable is required in production.")
 
 ALLOWED_HOSTS = ["*"]
 
@@ -103,11 +109,19 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    "default": dj_database_url.config(
-        default="postgresql://postgres:FootballIsLife2035@localhost:5432/football_analytics_db",
-        conn_max_age=600)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
+
+else:
+    DATABASES = {
+        "default": dj_database_url.config(
+            default="postgresql://postgres:FootballIsLife2035@localhost:5432/football_analytics_db",
+            conn_max_age=600)
+        }
 
 
 # Password validation

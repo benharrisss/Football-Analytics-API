@@ -12,6 +12,7 @@ def get_season_date_range(season_start_year):
 
 
 def parse_season(season_str):
+    # Try to match formats like '2023-2024', '2023/2024', '23-24', '23/24'
     match = re.match(r'(\d{2}|\d{4})[-/](\d{2}|\d{4})$', season_str)
     if match:
         start, end = match.groups()
@@ -31,6 +32,7 @@ def parse_season(season_str):
 
         return get_season_date_range(start_year)
     
+    # Try to match single year format like '2023'
     if season_str.isdigit() and len(season_str) in [2, 4]:
         if len(season_str) == 2:
             start_year = int(season_str) + 2000
@@ -215,6 +217,7 @@ def calculate_team_dna(team, league=None, date_from=None, date_to=None, last_n=N
 
     baselines = get_league_baselines(teams_raw)
 
+    # If we don't have enough data to calculate baselines, use the team stats themselves as a fallback
     if not baselines:
         baselines = {stat: {'min': 0, 'max': max(raw_stats[stat], 1)} for stat in raw_stats.keys()}
 
